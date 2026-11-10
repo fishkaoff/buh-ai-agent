@@ -1,0 +1,32 @@
+{
+  "_описание": "Универсальная конфигурация подключения к 1С через OData. Используется всеми скриптами Skills (config/onec/odata-client.js). Секреты можно переопределить переменными окружения: ODATA_BASE_URL, ODATA_USERNAME, ODATA_PASSWORD, ONEC_CONFIG (путь к этому файлу), ONEC_DATABASE (имя базы).",
+  "defaultDatabase": "ai_agent",
+  "databases": {
+    "ai_agent": {
+      "label": "ai_agent (InfoBase2) — база для проверки автоматизации",
+      "odataBaseUrl": "http://192.168.3.2/InfoBase2/odata/standard.odata/",
+      "auth": {
+        "type": "basic",
+        "username": "odata_ai",
+        "password": "2201"
+      }
+    }
+  },
+  "defaults": {
+    "organization": { "name": "Агентов Т. Т. ИП", "inn": "1209328142" },
+    "currencyCode": "643",
+    "vatRate": "НДС5",
+    "sumIncludesVat": true,
+    "unitOfMeasure": "шт",
+    "dateOnly": "true",
+    "_пояснение": "vatRate — ставка НДС по умолчанию для новых строк документов. Если пользователь явно назвал ставку — она главнее. dateOnly: даты документов отправлять как YYYY-MM-DDT00:00:00 (без Z), чтобы не сместить дату."
+  },
+  "safety": {
+    "allowWrite": true,
+    "dryRunFirst": true,
+    "allowPost": false,
+    "allowUnpost": false,
+    "allowMarkForDeletion": false,
+    "_пояснение": "allowPost=false: проведение документов — только после явного разрешения пользователя. Это настройка-напоминание для агента: финальное решение всегда за человеком."
+  }
+}
