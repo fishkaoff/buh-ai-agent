@@ -1,6 +1,10 @@
 """Юнит-тесты настроек приложения."""
 
-from buh_ai_agent.core.settings import get_settings
+from pathlib import Path
+
+import pytest
+
+from buh_ai_agent.core.settings import Settings, get_settings
 
 
 def test_settings_defaults() -> None:
@@ -9,3 +13,15 @@ def test_settings_defaults() -> None:
     assert settings.app_name == "buh-ai-agent"
     assert settings.app_env == "local"
     assert settings.debug is False
+
+    assert settings.skills_dir == Path(".opencode/skills")
+
+    assert settings.llm_temperature == 0.2
+    assert settings.llm_timeout == 60.0
+
+
+def test_settings_skills_dir_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SKILLS_DIR читается из переменной окружения."""
+    monkeypatch.setenv("SKILLS_DIR", "custom/skills")
+    settings = Settings(_env_file=None)
+    assert settings.skills_dir == Path("custom/skills")

@@ -1,32 +1,30 @@
 """Маршруты чата с AI-агентом."""
 
-from fastapi import APIRouter, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request, status
 
-from buh_ai_agent.api.schemas.chat import ChatNotImplementedResponse, ChatRequest
+from buh_ai_agent.agent.service import AgentService
+from buh_ai_agent.api.schemas.chat import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.post(
     "",
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+    status_code=status.HTTP_200_OK,
     responses={
-        status.HTTP_501_NOT_IMPLEMENTED: {"model": ChatNotImplementedResponse},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Некорректное сообщение."},
     },
 )
-async def chat(request: ChatRequest) -> JSONResponse:
-    """Обработка сообщения пользователя.
+async def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
+    """Обрабатывает сообщение пользователя через граф агента.
 
-    Обработка сообщений ещё не реализована: LangGraph и LLM-интеграция
-    будут подключены на следующих этапах.
+    Args:
+        request: Валидированное сообщение пользователя.
+        http_request: HTTP-запрос, из которого берётся сервис агента.
+
+    Returns:
+        Ответ агента.
     """
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content=ChatNotImplementedResponse(
-            detail=(
-                "Обработка сообщений ещё не реализована: "
-                "LangGraph и LLM-интеграция будут подключены позже."
-            ),
-        ).model_dump(),
-    )
+    agent_service: AgentService = http_request.app.state.agent_service
+    reply = await agent_service.run(request.message)
+    return ChatResponse(reply=reply)
