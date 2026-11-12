@@ -16,5 +16,8 @@ htmlcov/
 .idea/
 .vscode/
 
+# SQLite-хранилище приложения
+data/
+
 # uv
 # uv.lock intentionally NOT ignored (dependency lock must be committed)

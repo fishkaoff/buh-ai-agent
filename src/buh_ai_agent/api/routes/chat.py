@@ -18,13 +18,20 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 async def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
     """Обрабатывает сообщение пользователя через граф агента.
 
+    Диалог идентифицируется `chat_id`: агент загружает историю и активные
+    операции этого чата, контекст других чатов не используется.
+
     Args:
-        request: Валидированное сообщение пользователя.
+        request: Валидированное сообщение (chat_id, user_id, message).
         http_request: HTTP-запрос, из которого берётся сервис агента.
 
     Returns:
-        Ответ агента.
+        Ответ агента и данные активной операции (если есть).
     """
     agent_service: AgentService = http_request.app.state.agent_service
-    reply = await agent_service.run(request.message)
-    return ChatResponse(reply=reply)
+    result = await agent_service.run(request.chat_id, request.user_id, request.message)
+    return ChatResponse(
+        reply=result.reply,
+        operation_id=result.operation_id,
+        operation_status=result.operation_status,
+    )

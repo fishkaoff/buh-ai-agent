@@ -15,7 +15,7 @@
   "defaults": {
     "organization": { "name": "Агентов Т. Т. ИП", "inn": "1209328142" },
     "currencyCode": "643",
-    "vatRate": "НДС5",
+    "vatRate": "НДС20",
     "sumIncludesVat": true,
     "unitOfMeasure": "шт",
     "dateOnly": "true",
