@@ -13,6 +13,10 @@
 аргументов LLM — агент не может подделать привязку к чату. Инструмент
 проверяет принадлежность операции текущему диалогу: чужой operation_id
 вызывает ошибку.
+
+Мультибазность: при нескольких базах 1С агент передаёт `database` — имя
+базы из конфигурации; реестр проверяет имя и подставляет организацию
+базы. При одной базе аргумент не нужен (используется контекст диалога).
 """
 
 from __future__ import annotations
@@ -20,23 +24,28 @@ from __future__ import annotations
 from langchain_core.tools import BaseTool, tool
 
 from buh_ai_agent.agent.context import MissingDialogContextError, get_dialog_context
+from buh_ai_agent.integrations.onec.registry import OnecClients
 from buh_ai_agent.operations import OperationDocument, OperationService
 from buh_ai_agent.operations.models import ACTIVE_STATUSES
 from buh_ai_agent.tools.base import tool_error, tool_success
 
 
-def make_operation_tools(operation_service: OperationService) -> list[BaseTool]:
+def make_operation_tools(
+    operation_service: OperationService,
+    clients: OnecClients | None = None,
+) -> list[BaseTool]:
     """Создаёт инструменты управления операциями.
 
     Args:
         operation_service: Сервис операций (с общим с приложением хранилищем).
+        clients: Реестр подключений к базам 1С (None — 1С не подключена).
 
     Returns:
         Список LangChain-инструментов.
     """
 
     @tool
-    async def create_operation(summary: str) -> str:
+    async def create_operation(summary: str, database: str = "") -> str:
         """Регистрирует новую операцию создания документов 1С.
 
         Вызывайте в начале любой задачи создания/изменения документов.
@@ -46,6 +55,10 @@ def make_operation_tools(operation_service: OperationService) -> list[BaseTool]:
 
         Args:
             summary: Краткое описание задачи (исходный запрос пользователя).
+            database: Имя базы 1С, в которой создаются документы. При
+                нескольких базах указывайте базу, выбранную по запросу
+                пользователя (неясно — сначала уточните у пользователя,
+                не выбирайте базу молча).
 
         Returns:
             JSON: operation_id и статус операции.
@@ -54,13 +67,22 @@ def make_operation_tools(operation_service: OperationService) -> list[BaseTool]:
             context = get_dialog_context()
         except MissingDialogContextError as error:
             return tool_error(f"create_operation: {error}")
+        database_id = context.database_id
+        organization_id = context.organization_id
+        if clients is not None and (database.strip() or not database_id):
+            try:
+                _, config = clients.resolve(database)
+            except Exception as error:
+                return tool_error(f"create_operation: {error}")
+            database_id = config.database
+            organization_id = config.defaults.organization.name
         try:
             operation = operation_service.create(
                 summary,
                 chat_id=context.chat_id,
                 user_id=context.user_id,
-                organization_id=context.organization_id,
-                database_id=context.database_id,
+                organization_id=organization_id,
+                database_id=database_id,
             )
         except Exception as error:
             return tool_error(f"create_operation: {error}")

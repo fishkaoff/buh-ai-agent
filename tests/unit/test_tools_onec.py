@@ -32,7 +32,9 @@ from tests.unit.onec_helpers import (
     realization_service_line_row,
 )
 
+from buh_ai_agent.agent.context import DialogContext, bind_dialog_context
 from buh_ai_agent.integrations.onec.config import OnecDefaults, OnecSafety
+from buh_ai_agent.integrations.onec.registry import OnecClients
 from buh_ai_agent.tools.onec import make_onec_tools
 
 
@@ -47,6 +49,16 @@ def make_config() -> Any:
         password="test",
         defaults=OnecDefaults(currency_code="643", vat_rate="НДС5"),
         safety=OnecSafety(),
+    )
+
+
+def make_clients(
+    transport: httpx.MockTransport | None = None,
+) -> OnecClients:
+    """Реестр подключений с одной тестовой базой (транспорт — по умолчанию)."""
+    return OnecClients.single(
+        make_client(transport if transport is not None else make_transport(make_routes())),
+        make_config(),
     )
 
 
@@ -86,8 +98,7 @@ def make_routes() -> dict[tuple[str, str], Any]:
 def test_tools_registered() -> None:
     """Tools 1С зарегистрированы и доступны агенту."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     names = [t.name for t in tools]
     assert "find_counterparty" in names
     assert "create_counterparty" in names
@@ -98,14 +109,14 @@ def test_tools_registered() -> None:
     assert "create_sales_invoice" in names
     assert "get_document" in names
     assert "list_allowed_vat_rates" in names
+    assert "export_document_pdf" in names
     assert all(isinstance(t, BaseTool) for t in tools)
 
 
 async def test_find_counterparty() -> None:
     """find_counterparty возвращает найденного контрагента."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "find_counterparty")
     result = await tool.ainvoke({"name": "Ромашка"})
     parsed = json.loads(result)
@@ -117,8 +128,7 @@ async def test_find_counterparty() -> None:
 async def test_find_counterparty_requires_query() -> None:
     """find_counterparty без ИНН и наименования — ошибка."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "find_counterparty")
     result = await tool.ainvoke({"name": "", "inn": ""})
     parsed = json.loads(result)
@@ -129,8 +139,7 @@ async def test_find_counterparty_requires_query() -> None:
 async def test_find_nomenclature() -> None:
     """find_nomenclature возвращает найденные позиции."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "find_nomenclature")
     result = await tool.ainvoke({"query": "Консультация"})
     parsed = json.loads(result)
@@ -142,8 +151,7 @@ async def test_find_nomenclature() -> None:
 async def test_list_allowed_vat_rates() -> None:
     """list_allowed_vat_rates возвращает ставки из $metadata."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "list_allowed_vat_rates")
     result = await tool.ainvoke({})
     parsed = json.loads(result)
@@ -154,8 +162,7 @@ async def test_list_allowed_vat_rates() -> None:
 async def test_create_sales_invoice_full_scenario() -> None:
     """Полный сценарий: счёт → реализация → счёт-фактура (УПД)."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "create_sales_invoice")
     result = await tool.ainvoke(
         {
@@ -183,8 +190,7 @@ async def test_create_sales_invoice_full_scenario() -> None:
 async def test_create_sales_invoice_requires_lines() -> None:
     """create_sales_invoice без позиций — ошибка."""
     transport = make_transport(make_routes())
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "create_sales_invoice")
     result = await tool.ainvoke(
         {
@@ -203,8 +209,7 @@ async def test_create_sales_invoice_rejects_unsupported_vat() -> None:
     routes = make_routes()
     routes[("GET", "$metadata")] = httpx.Response(200, text=METADATA_XML.replace("НДС5", "НДС20"))
     transport = make_transport(routes)
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "create_sales_invoice")
     result = await tool.ainvoke(
         {
@@ -229,8 +234,7 @@ async def test_create_sales_invoice_blocks_duplicate_open_invoice() -> None:
     # Контрагент уже имеет непроведённый счёт за сегодня.
     routes[("GET", "Document_СчетНаОплатуПокупателю?$")] = [invoice_row(Posted=False)]
     transport = make_transport(routes)
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "create_sales_invoice")
     result = await tool.ainvoke(
         {
@@ -255,8 +259,7 @@ async def test_create_sales_invoice_force_new_bypasses_duplicate_block() -> None
     routes = make_routes()
     routes[("GET", "Document_СчетНаОплатуПокупателю?$")] = [invoice_row(Posted=False)]
     transport = make_transport(routes)
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "create_sales_invoice")
     result = await tool.ainvoke(
         {
@@ -275,8 +278,7 @@ async def test_create_sales_invoice_force_new_bypasses_duplicate_block() -> None
 async def test_create_sales_invoice_1c_unavailable() -> None:
     """Недоступность 1С — понятная ошибка, без stack traces."""
     transport = make_transport({("GET", "$metadata"): httpx.Response(200, text=METADATA_XML)})
-    client = make_client(transport)
-    tools = make_onec_tools(client, make_config())
+    tools = make_onec_tools(make_clients(transport))
     tool = next(t for t in tools if t.name == "create_sales_invoice")
     result = await tool.ainvoke(
         {
@@ -289,3 +291,360 @@ async def test_create_sales_invoice_1c_unavailable() -> None:
     assert parsed["ok"] is False
     assert "create_sales_invoice" in parsed["error"]
     assert "Traceback" not in parsed["error"]
+
+
+# ------------------------------------------------------------------
+# create_contract: сквозная нумерация и обязательный номер
+# ------------------------------------------------------------------
+
+
+def contract_routes(contracts_rows: list[dict[str, Any]]) -> dict[tuple[str, str], Any]:
+    """Маршруты для create_contract: список договоров + создание и перечитывание."""
+    return {
+        ("GET", "Catalog_ДоговорыКонтрагентов"): contracts_rows,
+        ("GET", "Catalog_Организации"): [organization_row()],
+        ("GET", "Catalog_Валюты"): [{"Ref_Key": RUB_REF, "Code": "643", "Description": "руб."}],
+        ("POST", "Catalog_ДоговорыКонтрагентов"): entity_ref(CONTRACT_REF, "00-000009"),
+        ("GET", "Catalog_ДоговорыКонтрагентов(guid'"): contract_row(),
+    }
+
+
+async def test_create_contract_auto_number_is_global() -> None:
+    """Кандидат номера = max(числовых Номер по ВСЕМ договорам базы) + 1."""
+    # У контрагента договоров нет; номер 7 занят договором другого контрагента.
+    rows = [contract_row(Номер="7", Owner_Key="another-owner-guid")]
+    transport = make_transport(contract_routes(rows))
+    tools = make_onec_tools(make_clients(transport))
+    tool = next(t for t in tools if t.name == "create_contract")
+    result = await tool.ainvoke({"counterparty_key": CONTRACTOR_REF, "kind": "СПокупателем"})
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    posts = [r for r in transport.seen_requests if r.method == "POST"]  # type: ignore[attr-defined]
+    body = json.loads(posts[0].content)
+    assert body["Номер"] == "8"
+    from datetime import UTC, datetime
+
+    expected_description = f"8 от {datetime.now(tz=UTC).strftime('%d.%m.%Y')}"
+    assert body["Description"] == expected_description
+
+
+async def test_create_contract_never_without_number() -> None:
+    """Если номер определить нельзя — ошибка с просьбой спросить пользователя; «б/н» нет."""
+    rows = [contract_row(Номер="б/н", Owner_Key=CONTRACTOR_REF)]
+    transport = make_transport(contract_routes(rows))
+    tools = make_onec_tools(make_clients(transport))
+    tool = next(t for t in tools if t.name == "create_contract")
+    result = await tool.ainvoke({"counterparty_key": CONTRACTOR_REF, "kind": "СПокупателем"})
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "Уточните номер" in parsed["error"]
+    posts = [r for r in transport.seen_requests if r.method == "POST"]  # type: ignore[attr-defined]
+    assert not posts
+
+
+async def test_create_contract_rejects_number_taken_by_other_counterparty() -> None:
+    """Номер, занятый договором другого контрагента, не переиспользуется."""
+    rows = [contract_row(Номер="5", Owner_Key="another-owner-guid")]
+    transport = make_transport(contract_routes(rows))
+    tools = make_onec_tools(make_clients(transport))
+    tool = next(t for t in tools if t.name == "create_contract")
+    result = await tool.ainvoke(
+        {"counterparty_key": CONTRACTOR_REF, "kind": "СПокупателем", "number": "5"}
+    )
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "уже занят" in parsed["error"]
+    posts = [r for r in transport.seen_requests if r.method == "POST"]  # type: ignore[attr-defined]
+    assert not posts
+
+
+async def test_create_contract_rejects_number_taken_by_other_kind() -> None:
+    """Номер занят договором того же контрагента, но другого вида, — ошибка."""
+    rows = [contract_row(Номер="5", Owner_Key=CONTRACTOR_REF, ВидДоговора="СПоставщиком")]
+    transport = make_transport(contract_routes(rows))
+    tools = make_onec_tools(make_clients(transport))
+    tool = next(t for t in tools if t.name == "create_contract")
+    result = await tool.ainvoke(
+        {"counterparty_key": CONTRACTOR_REF, "kind": "СПокупателем", "number": "5"}
+    )
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "уже занят" in parsed["error"]
+
+
+async def test_create_contract_same_owner_same_kind_returns_existing() -> None:
+    """Договор с тем же номером, видом и контрагентом возвращается как существующий."""
+    rows = [contract_row(Номер="5", Owner_Key=CONTRACTOR_REF, ВидДоговора="СПокупателем")]
+    transport = make_transport(contract_routes(rows))
+    tools = make_onec_tools(make_clients(transport))
+    tool = next(t for t in tools if t.name == "create_contract")
+    result = await tool.ainvoke(
+        {"counterparty_key": CONTRACTOR_REF, "kind": "СПокупателем", "number": "5"}
+    )
+    parsed = json.loads(result)
+    assert parsed["ok"] is True
+    assert parsed["data"]["already_exists"] is True
+    posts = [r for r in transport.seen_requests if r.method == "POST"]  # type: ignore[attr-defined]
+    assert not posts
+
+
+async def test_create_contract_uses_explicit_number() -> None:
+    """Явно указанный номер используется как есть."""
+    transport = make_transport(contract_routes([]))
+    tools = make_onec_tools(make_clients(transport))
+    tool = next(t for t in tools if t.name == "create_contract")
+    result = await tool.ainvoke(
+        {"counterparty_key": CONTRACTOR_REF, "kind": "СПокупателем", "number": "12"}
+    )
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    posts = [r for r in transport.seen_requests if r.method == "POST"]  # type: ignore[attr-defined]
+    body = json.loads(posts[0].content)
+    assert body["Номер"] == "12"
+
+
+# ------------------------------------------------------------------
+# Мультибазность: выбор базы аргументом database
+# ------------------------------------------------------------------
+
+
+def make_config_second() -> Any:
+    """Конфигурация второй тестовой базы."""
+    from buh_ai_agent.integrations.onec.config import OnecConnectionConfig
+
+    return OnecConnectionConfig(
+        database="filial",
+        base_url="http://onec.test/filial/",
+        username="user",
+        password="test",
+        defaults=OnecDefaults(currency_code="643", vat_rate="НДС5"),
+        safety=OnecSafety(),
+    )
+
+
+async def test_tool_without_database_and_multiple_bases_asks() -> None:
+    """При нескольких базах пустой database — ошибка со списком баз."""
+    first = make_clients()
+    second_transport = make_transport(make_routes())
+    second = OnecClients.single(make_client(second_transport), make_config_second())
+    registry = OnecClients((*first.configs, *second.configs), {**first.clients, **second.clients})
+    tools = make_onec_tools(registry)
+    tool = next(t for t in tools if t.name == "find_nomenclature")
+    result = await tool.ainvoke({"query": "Консультация"})
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "уточните у пользователя" in parsed["error"]
+    assert "ai_agent" in parsed["error"]
+    assert "filial" in parsed["error"]
+
+
+async def test_tool_unknown_database_lists_available() -> None:
+    """Неизвестное имя базы — ошибка со списком доступных."""
+    tools = make_onec_tools(make_clients())
+    tool = next(t for t in tools if t.name == "find_nomenclature")
+    result = await tool.ainvoke({"query": "Консультация", "database": "no-such-base"})
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "не найдена" in parsed["error"]
+    assert "ai_agent" in parsed["error"]
+
+
+async def test_tool_routes_to_selected_database() -> None:
+    """Запрос уходит в базу, выбранную аргументом database."""
+    first_transport = make_transport(make_routes())
+    second_transport = make_transport(make_routes())
+    first = OnecClients.single(make_client(first_transport), make_config())
+    second = OnecClients.single(make_client(second_transport), make_config_second())
+    registry = OnecClients((*first.configs, *second.configs), {**first.clients, **second.clients})
+    tools = make_onec_tools(registry)
+    tool = next(t for t in tools if t.name == "find_nomenclature")
+    result = await tool.ainvoke({"query": "Консультация", "database": "filial"})
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    assert len(second_transport.seen_requests) > 0  # type: ignore[attr-defined]
+    assert len(first_transport.seen_requests) == 0  # type: ignore[attr-defined]
+
+
+async def test_single_base_works_without_database_argument() -> None:
+    """Одна база: аргумент database не нужен."""
+    tools = make_onec_tools(make_clients())
+    tool = next(t for t in tools if t.name == "find_nomenclature")
+    result = await tool.ainvoke({"query": "Консультация"})
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+
+
+# ------------------------------------------------------------------
+# export_document_pdf: официальный PDF через HTTP-сервис печати 1С
+# ------------------------------------------------------------------
+
+
+def make_clients_with_print(
+    print_transport: httpx.MockTransport, print_service_url: str = "http://onec.test/hs/print"
+) -> OnecClients:
+    """Реестр с одной базой, у которой настроен HTTP-сервис печати."""
+    config = make_config()
+    config.print_service_url = print_service_url
+    return OnecClients.single(make_client(make_transport(make_routes())), config)
+
+
+INVOICE_PDF = b"%PDF-1.4\n%official invoice\n%%EOF\n"
+UPD_PDF = b"%PDF-1.4\n%official upd\n%%EOF\n"
+
+
+async def test_export_document_pdf_attaches_file_to_reply() -> None:
+    """PDF счёта прикладывается к ответу диалога, в Tool — только метаданные."""
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=INVOICE_PDF))
+    tools = make_onec_tools(make_clients_with_print(transport), print_transport=transport)
+    tool = next(t for t in tools if t.name == "export_document_pdf")
+    context = DialogContext(chat_id="chat-1", user_id="user-1")
+    with bind_dialog_context(context):
+        result = await tool.ainvoke({"document_type": "invoice", "ref_key": INVOICE_REF})
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    assert parsed["data"]["name"] == "schet_0000-0000001.pdf"
+    assert parsed["data"]["number"] == "0000-0000001"
+    assert parsed["data"]["attached_to_reply"] is True
+    files = context.take_files()
+    assert len(files) == 1
+    assert files[0].kind == "invoice"
+    assert files[0].name == "schet_0000-0000001.pdf"
+    assert files[0].data == INVOICE_PDF
+    # Повторный вызов take_files — файлы не хранятся.
+    assert context.take_files() == []
+
+
+async def test_export_document_pdf_upd_from_realization() -> None:
+    """УПД печатается из реализации: шаблон realization, имя upd_…."""
+
+    def print_handler(request: httpx.Request) -> httpx.Response:
+        assert "/hs/print/realization/" in str(request.url)
+        return httpx.Response(200, content=UPD_PDF)
+
+    transport = httpx.MockTransport(print_handler)
+    tools = make_onec_tools(make_clients_with_print(transport), print_transport=transport)
+    tool = next(t for t in tools if t.name == "export_document_pdf")
+    context = DialogContext(chat_id="chat-1", user_id="user-1")
+    with bind_dialog_context(context):
+        result = await tool.ainvoke({"document_type": "realization", "ref_key": REALIZATION_REF})
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    assert parsed["data"]["name"] == "upd_0000-0000001.pdf"
+    assert parsed["data"]["document"] == "realization"
+    files = context.take_files()
+    assert files[0].kind == "upd"
+    assert files[0].data == UPD_PDF
+
+
+async def test_export_document_pdf_unknown_type() -> None:
+    """Неподдержанный тип документа — ошибка со списком доступных."""
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=INVOICE_PDF))
+    tools = make_onec_tools(make_clients_with_print(transport), print_transport=transport)
+    tool = next(t for t in tools if t.name == "export_document_pdf")
+    result = await tool.ainvoke({"document_type": "act", "ref_key": INVOICE_REF})
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "invoice, realization" in parsed["error"]
+
+
+async def test_export_document_pdf_service_error() -> None:
+    """Ошибка сервиса печати возвращается с текстом 1С."""
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(500, text="Ошибка печати: не найден макет")
+    )
+    tools = make_onec_tools(make_clients_with_print(transport), print_transport=transport)
+    tool = next(t for t in tools if t.name == "export_document_pdf")
+    result = await tool.ainvoke({"document_type": "invoice", "ref_key": INVOICE_REF})
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "не найден макет" in parsed["error"]
+
+
+async def test_export_document_pdf_without_service_configured() -> None:
+    """Сервис печати не настроен — понятная ошибка с направлением на инструкцию."""
+    tools = make_onec_tools(make_clients())
+    tool = next(t for t in tools if t.name == "export_document_pdf")
+    result = await tool.ainvoke({"document_type": "invoice", "ref_key": INVOICE_REF})
+    parsed = json.loads(result)
+    assert parsed["ok"] is False
+    assert "не настроен" in parsed["error"]
+    assert "print_service_url" in parsed["error"]
+
+
+# ------------------------------------------------------------------
+# create_sales_invoice: официальные PDF прикладываются к ответу
+# ------------------------------------------------------------------
+
+
+def print_transport_two_forms() -> httpx.MockTransport:
+    """Транспорт сервиса печати: PDF счёта и PDF УПД по своим путям."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/hs/print/invoice/" in url:
+            return httpx.Response(200, content=INVOICE_PDF)
+        if "/hs/print/realization/" in url:
+            return httpx.Response(200, content=UPD_PDF)
+        return httpx.Response(404, text="нет шаблона")
+
+    return httpx.MockTransport(handler)
+
+
+async def test_create_sales_invoice_attaches_official_pdfs() -> None:
+    """При создании счёта PDF счёта и УПД прикладываются к ответу, черновиков нет."""
+    print_transport = print_transport_two_forms()
+    tools = make_onec_tools(
+        make_clients_with_print(print_transport), print_transport=print_transport
+    )
+    tool = next(t for t in tools if t.name == "create_sales_invoice")
+    context = DialogContext(chat_id="chat-1", user_id="user-1")
+    with bind_dialog_context(context):
+        result = await tool.ainvoke(
+            {
+                "counterparty_key": CONTRACTOR_REF,
+                "contract_key": CONTRACT_REF,
+                "lines": [
+                    {"name": "Разработка ПО", "quantity": 1, "price": 100000, "is_service": True}
+                ],
+                "vat_rate": "НДС5",
+            }
+        )
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    assert parsed["data"]["invoice_pdf"]["name"] == "schet_0000-0000001.pdf"
+    assert parsed["data"]["upd_pdf"]["name"] == "upd_0000-0000001.pdf"
+    assert "invoice_draft" not in parsed["data"]
+    assert "upd_draft" not in parsed["data"]
+    files = context.take_files()
+    assert [file.kind for file in files] == ["invoice", "upd"]
+    assert files[0].data == INVOICE_PDF
+    assert files[1].data == UPD_PDF
+
+
+async def test_create_sales_invoice_pdf_failure_falls_back_to_drafts() -> None:
+    """Ошибка сервиса печати не ломает создание: черновики + текст ошибки."""
+    print_transport = httpx.MockTransport(
+        lambda request: httpx.Response(500, text="Ошибка печати: не найден макет")
+    )
+    tools = make_onec_tools(
+        make_clients_with_print(print_transport), print_transport=print_transport
+    )
+    tool = next(t for t in tools if t.name == "create_sales_invoice")
+    context = DialogContext(chat_id="chat-1", user_id="user-1")
+    with bind_dialog_context(context):
+        result = await tool.ainvoke(
+            {
+                "counterparty_key": CONTRACTOR_REF,
+                "contract_key": CONTRACT_REF,
+                "lines": [
+                    {"name": "Разработка ПО", "quantity": 1, "price": 100000, "is_service": True}
+                ],
+                "vat_rate": "НДС5",
+            }
+        )
+    parsed = json.loads(result)
+    assert parsed["ok"] is True, parsed
+    assert "invoice_draft" in parsed["data"]
+    assert "upd_draft" in parsed["data"]
+    assert "не найден макет" in parsed["data"]["pdf_errors"]
+    assert context.take_files() == []

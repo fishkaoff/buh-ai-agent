@@ -143,8 +143,11 @@ def build_operation_context(
             )
             or "документы не созданы"
         )
+        database = (
+            f", база 1С: {operation.database_id}" if getattr(operation, "database_id", "") else ""
+        )
         lines.append(
-            f"- operation_id: {operation.id}, статус: {operation.status}, "
+            f"- operation_id: {operation.id}, статус: {operation.status}{database}, "
             f"запрос: «{operation.request}», созданные документы: {docs}."
         )
     lines.append(

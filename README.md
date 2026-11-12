@@ -104,9 +104,11 @@ uv run ruff format .
 - `AGENT_HISTORY_MESSAGES` — сколько последних сообщений диалога (включая результаты Tools) передаётся LLM.
 - `SKILLS_DIR` — директория Skills приложения (по умолчанию `skills/`).
 - Подключение к 1С — только переменные окружения (файловые конфиги приложением не читаются):
-  - `ONEC_BASE_URL`, `ONEC_USERNAME`, `ONEC_PASSWORD`, `ONEC_DATABASE` — подключение;
+  - `ONEC_BASE_URL`, `ONEC_USERNAME`, `ONEC_PASSWORD`, `ONEC_DATABASE` — подключение к одной базе;
+  - `ONEC_DATABASES` — несколько баз, JSON-массив в одну строку (задан — используется вместо одиночного подключения): `[{"name": "osnovnaya", "label": "Основная база", "base_url": "…", "username": "…", "password": "…", "organization_name": "…", "organization_inn": "…"}]`. `name` агент передаёт аргументом `database` во все Tools 1С; при нескольких базах и неясном запросе агент уточняет базу у пользователя; `organization_*` необязательны (иначе общие `ONEC_ORGANIZATION_*`);
   - `ONEC_ORGANIZATION_NAME`, `ONEC_ORGANIZATION_INN`, `ONEC_CURRENCY_CODE`, `ONEC_VAT_RATE`, `ONEC_SUM_INCLUDES_VAT`, `ONEC_UNIT_OF_MEASURE` — дефолты документов;
-  - `ONEC_ALLOW_WRITE`, `ONEC_ALLOW_POST`, `ONEC_ALLOW_UNPOST`, `ONEC_ALLOW_MARK_FOR_DELETION` — правила безопасности записи.
+  - `ONEC_ALLOW_WRITE`, `ONEC_ALLOW_POST`, `ONEC_ALLOW_UNPOST`, `ONEC_ALLOW_MARK_FOR_DELETION` — правила безопасности записи;
+  - `ONEC_PRINT_SERVICE_URL` — HTTP-сервис печати (расширение 1С) для скачивания официальных печатных форм PDF; развёртывание — `docs/onec-print-http-service.md`.
 
 ## API
 

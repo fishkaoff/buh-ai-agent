@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     onec_username: str = ""
     onec_password: SecretStr = SecretStr("")
     onec_database: str = ""
+    # Несколько баз 1С: JSON-массив в одну строку, элемент — объект базы:
+    # [{"name": "osnovnaya", "label": "Основная база (ИП Агентов)",
+    #   "base_url": "http://…/odata/standard.odata/", "username": "…",
+    #   "password": "…", "organization_name": "…", "organization_inn": "…"}].
+    # Если задан — используется он, а одиночные ONEC_BASE_URL/USERNAME/
+    # PASSWORD/DATABASE игнорируются. organization_* базы не обязательны:
+    # пустые значения берутся из общих ONEC_ORGANIZATION_*.
+    onec_databases: str = ""
+    # HTTP-сервис печати (расширение 1С): корневой URL сервиса, например
+    # http://192.168.3.2/InfoBase2/hs/print. Используется для скачивания
+    # официальных печатных форм (PDF). Пусто — сервис не используется
+    # (fallback для всех баз; у базы можно задать свой print_service_url).
+    onec_print_service_url: str = ""
     onec_timeout: float = 30.0
     onec_max_retries: int = 1
 

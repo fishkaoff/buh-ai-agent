@@ -24,7 +24,7 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 
-from buh_ai_agent.agent.context import DialogContext, bind_dialog_context
+from buh_ai_agent.agent.context import AgentFile, DialogContext, bind_dialog_context
 from buh_ai_agent.agent.history import (
     build_operation_context,
     row_to_message,
@@ -47,11 +47,14 @@ class AgentReply:
         operation_id: Идентификатор активной операции диалога (если есть) —
             для команд подтверждения/отклонения.
         operation_status: Статус этой операции.
+        files: Файлы (PDF печатных форм), приложенные к этому ответу.
+            Живут только в рамках ответа: передаются клиенту и не хранятся.
     """
 
     reply: str
     operation_id: str | None = None
     operation_status: str | None = None
+    files: tuple[AgentFile, ...] = ()
 
 
 class AgentService:
@@ -155,7 +158,10 @@ class AgentService:
                 # Простой граф (без Tools) принимает одно сообщение: история
                 # восстанавливается сервисом, ответ сохраняется как есть.
                 self._store.append_message(chat_id, user_id, "ai", reply)
-        return self._build_reply(chat_id, reply)
+        # Файлы (PDF печатных форм) Tools прикладывали в контекст диалога:
+        # забираем их в ответ и очищаем — приложение файлы не хранит.
+        files = tuple(context.take_files())
+        return self._build_reply(chat_id, reply, files)
 
     # ------------------------------------------------------------------
     # Внутренние помощники
@@ -214,13 +220,16 @@ class AgentService:
         content = getattr(message, "content", "")
         return content if isinstance(content, str) else str(content)
 
-    def _build_reply(self, chat_id: str, reply: str) -> AgentReply:
-        """Собирает ответ с данными активной операции диалога."""
+    def _build_reply(
+        self, chat_id: str, reply: str, files: tuple[AgentFile, ...] = ()
+    ) -> AgentReply:
+        """Собирает ответ с данными активной операции и приложенными файлами."""
         operation = self._latest_active_operation(chat_id)
         return AgentReply(
             reply=reply,
             operation_id=operation.id if operation else None,
             operation_status=operation.status.value if operation else None,
+            files=files,
         )
 
     def _latest_active_operation(self, chat_id: str) -> Operation | None:

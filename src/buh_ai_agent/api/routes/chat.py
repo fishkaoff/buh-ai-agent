@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Request, status
 
 from buh_ai_agent.agent.service import AgentService
-from buh_ai_agent.api.schemas.chat import ChatRequest, ChatResponse
+from buh_ai_agent.api.schemas.chat import ChatRequest, ChatResponse, ResponseFile
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -34,4 +34,5 @@ async def chat(request: ChatRequest, http_request: Request) -> ChatResponse:
         reply=result.reply,
         operation_id=result.operation_id,
         operation_status=result.operation_status,
+        files=[ResponseFile.from_agent_file(file) for file in result.files],
     )

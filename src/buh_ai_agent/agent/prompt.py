@@ -1,12 +1,54 @@
-"""Системный промпт агента: роль, правила, список доступных Skills."""
+"""Системный промпт агента: роль, правила, список Skills и баз 1С."""
 
 from __future__ import annotations
 
 from buh_ai_agent.skills.registry import SkillRegistry
 
 
-def build_system_prompt(skill_registry: SkillRegistry) -> str:
-    """Строит системный промпт со списком доступных Skills.
+def _databases_block(databases: list[dict[str, str]] | None) -> str:
+    """Строит блок промпта о базах 1С (пусто — блок не добавляется).
+
+    Args:
+        databases: Список баз {name, label} из реестра подключений.
+
+    Returns:
+        Текст блока с завершающими пустыми строками или пустая строка.
+    """
+    if not databases:
+        return ""
+    lines: list[str] = []
+    if len(databases) == 1:
+        only = databases[0]
+        label = f" — {only['label']}" if only.get("label") else ""
+        lines.append(
+            f"База 1С: {only['name']}{label} (единственная — аргумент database "
+            "у Tools 1С и create_operation указывать не нужно)."
+        )
+    else:
+        lines.append("Доступные базы 1С (имя — описание):")
+        lines.extend(
+            f"- {item['name']}" + (f" — {item['label']}" if item.get("label") else "")
+            for item in databases
+        )
+        lines.append(
+            "Правила мультибазности:\n"
+            "- Определи по запросу пользователя, в какой базе выполнять задачу "
+            "(база может быть названа по описанию, например «база Ромазановой»). "
+            "Если из запроса не ясно, о какой базе речь, — задай уточняющий вопрос, "
+            "а не выбирай базу молча.\n"
+            "- Выбранную базу передавай аргументом database во все Tools 1С и в "
+            "create_operation.\n"
+            "- Если пользователь продолжает активную операцию — работай в базе "
+            "этой операции (база указана в её контексте)."
+        )
+    return "\n".join(lines) + "\n\n"
+
+
+def build_system_prompt(
+    skill_registry: SkillRegistry,
+    databases: list[dict[str, str]] | None = None,
+) -> str:
+    """Строит системный промпт со списком доступных Skills и баз 1С.
 
     В промпт попадают только name и description — полное содержимое
     Skills загружается агентом лениво через инструмент `load_skill`.
@@ -16,6 +58,8 @@ def build_system_prompt(skill_registry: SkillRegistry) -> str:
 
     Args:
         skill_registry: Реестр обнаруженных Skills.
+        databases: Базы 1С из реестра подключений {name, label}; None/пусто —
+            блок о базах не добавляется.
 
     Returns:
         Текст системного промпта.
@@ -28,8 +72,7 @@ def build_system_prompt(skill_registry: SkillRegistry) -> str:
     return (
         "Ты — AI-агент для автоматизации бухгалтерских операций в 1С.\n\n"
         "Доступные Skills (инструкции по сценариям):\n"
-        f"{skill_lines}\n\n"
-        "Правила:\n"
+        f"{skill_lines}\n\n" + _databases_block(databases) + "Правила:\n"
         "1. Определи, какой Skill нужен для запроса пользователя, и загрузи его "
         "полную инструкцию инструментом load_skill перед выполнением сценария.\n"
         "2. Можно загрузить несколько Skills, если сценарий этого требует. Загружай "

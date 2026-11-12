@@ -4,8 +4,10 @@
 - владелец — контрагент через `Owner_Key`;
 - вид договора соответствует операции (продажа — `СПокупателем`);
 - закрытые (`ДоговорЗакрыт`) не использовать для новых документов;
-- `Номер` — строковый реквизит, 1С через OData его не нумерует:
-  кандидат = max(числовых Номер) + 1, проверка занятости;
+- `Номер` — строковый реквизит, 1С через OData его не нумерует;
+  нумерация сквозная по всем контрагентам базы: кандидат =
+  max(числовых Номер всех договоров) + 1, проверка занятости;
+- договор без номера («б/н») не создаётся: номер обязателен;
 - `Description` — по образцу данных: «Номер от ДД.ММ.ГГГГ».
 """
 
@@ -47,6 +49,23 @@ async def find_contracts(
     return contracts
 
 
+async def find_all_contracts(client: OnecClient) -> list[Contract]:
+    """Читает договоры всей базы — для сквозной нумерации и проверки занятости.
+
+    Номера договоров общие на всех контрагентов, поэтому кандидат
+    следующего номера и проверка занятости выполняются по всей базе,
+    а не по договорам одного контрагента.
+
+    Args:
+        client: Клиент 1С.
+
+    Returns:
+        Список договоров (без пометки удаления), все виды и владельцы.
+    """
+    rows = await client.query(ENTITY_CONTRACTS, select=_SELECT_CONTRACT, top=500)
+    return [Contract.from_row(row) for row in rows if not row.get("DeletionMark")]
+
+
 def pick_latest_contract(contracts: list[Contract], *, kind: str = "") -> Contract | None:
     """Выбирает «последний подходящий» договор: максимум пары (Дата, Номер).
 
@@ -68,12 +87,14 @@ def pick_latest_contract(contracts: list[Contract], *, kind: str = "") -> Contra
 def next_contract_number(contracts: list[Contract]) -> str | None:
     """Вычисляет кандидата следующего номера договора.
 
-    Правила Skill onec-contracts: кандидат = max(числовых `Номер`) + 1;
-    если номера нечисловые/смешанные — надёжно определить нельзя,
-    возвращается None (номер нужно спросить у пользователя).
+    Правила Skill onec-contracts: нумерация сквозная по всем контрагентам,
+    кандидат = max(числовых `Номер`) + 1; передавайте договоры всей базы
+    (`find_all_contracts`), а не одного контрагента. Если номера
+    нечисловые/смешанные — надёжно определить нельзя, возвращается None
+    (номер нужно спросить у пользователя).
 
     Args:
-        contracts: Договоры (все контрагентов — сквозная последовательность).
+        contracts: Договоры всей базы (сквозная последовательность).
 
     Returns:
         Кандидат номера строкой или None.
@@ -109,7 +130,7 @@ async def create_contract(
     organization_key: str,
     currency_key: str,
     kind: str = "СПокупателем",
-    number: str = "",
+    number: str,
     document_date: str | None = None,
 ) -> Contract:
     """Создаёт договор по проверенному минимуму реквизитов.
@@ -120,14 +141,15 @@ async def create_contract(
         organization_key: GUID организации.
         currency_key: GUID валюты взаиморасчетов (руб. — 643).
         kind: Вид договора (`СПокупателем` — продажа; обязателен).
-        number: Номер договора (пусто — «б/н»; 1С через OData не нумерует).
+        number: Номер договора (обязателен: сквозная нумерация по всем
+            контрагентам; договор «б/н» не создаётся).
         document_date: Дата `YYYY-MM-DD` (None — сегодня).
 
     Returns:
         Созданный договор (перечитан после записи).
 
     Raises:
-        ValueError: Не задан вид договора или контрагент.
+        ValueError: Не задан номер, вид договора или контрагент.
         buh_ai_agent.integrations.onec.errors.OnecApiError: Ошибка записи.
     """
     from buh_ai_agent.integrations.onec.client import format_document_date
@@ -136,18 +158,23 @@ async def create_contract(
         raise ValueError("Не задан контрагент для договора.")
     if not kind:
         raise ValueError("Вид договора (ВидДоговора) обязателен.")
+    contract_number = number.strip()
+    if not contract_number:
+        raise ValueError(
+            "Не задан номер договора — договор без номера («б/н») создавать нельзя. "
+            "Уточните номер у пользователя."
+        )
 
     doc_date = format_document_date(document_date)
     payload: dict[str, object] = {
-        "Description": contract_description(number or "б/н", doc_date[:10]),
+        "Description": contract_description(contract_number, doc_date[:10]),
         "Дата": doc_date,
+        "Номер": contract_number,
         "Owner_Key": counterparty_key,
         "Организация_Key": organization_key,
         "ВидДоговора": kind,
         "ВалютаВзаиморасчетов_Key": currency_key,
     }
-    if number:
-        payload["Номер"] = number
 
     created = await client.create(ENTITY_CONTRACTS, payload)
     ref_key = str(created.get("Ref_Key", ""))

@@ -159,6 +159,65 @@ async def test_find_counterparty_by_name() -> None:
     assert found[0].description == "ООО Ромашка"
 
 
+async def test_find_by_name_tolerates_spaces() -> None:
+    """«Логистик Плюс» находит «ЛогистикПлюс» — пробелы не важны."""
+    transport = make_transport(
+        {
+            ("GET", "Catalog_Контрагенты"): [
+                counterparty_row(Description="ЛогистикПлюс"),
+                counterparty_row(Description="ООО Лукоморье"),
+            ]
+        }
+    )
+    async with make_client(transport) as client:
+        found = await counterparties.find_by_name(client, "Логистик Плюс")
+    assert len(found) == 1
+    assert found[0].description == "ЛогистикПлюс"
+
+
+async def test_find_by_name_ignores_quotes() -> None:
+    """Кавычки и пунктуация в запросе не мешают поиску."""
+    transport = make_transport({("GET", "Catalog_Контрагенты"): [counterparty_row()]})
+    async with make_client(transport) as client:
+        found = await counterparties.find_by_name(client, "ООО «Ромашка»!")
+    assert len(found) == 1
+    assert found[0].description == "ООО Ромашка"
+
+
+async def test_find_by_name_extra_words_do_not_match() -> None:
+    """Слово, которого нет в наименовании, отсекает кандидата (строгий AND)."""
+    transport = make_transport({("GET", "Catalog_Контрагенты"): [counterparty_row()]})
+    async with make_client(transport) as client:
+        found = await counterparties.find_by_name(client, "Ромашка Лукоморье")
+    assert found == []
+
+
+async def test_find_by_name_retries_without_legal_form() -> None:
+    """Если в базе нет «ООО», второй проход ищет по значимым словам."""
+    transport = make_transport(
+        {("GET", "Catalog_Контрагенты"): [counterparty_row(Description="ЛогистикПлюс")]}
+    )
+    async with make_client(transport) as client:
+        found = await counterparties.find_by_name(client, "ООО «Логистик Плюс»")
+    assert len(found) == 1
+    assert found[0].description == "ЛогистикПлюс"
+
+
+async def test_find_by_name_shortest_match_first() -> None:
+    """Более короткие (точные) совпадения — первыми в списке."""
+    transport = make_transport(
+        {
+            ("GET", "Catalog_Контрагенты"): [
+                counterparty_row(Description="ЛогистикПлюс Восток"),
+                counterparty_row(Description="ЛогистикПлюс"),
+            ]
+        }
+    )
+    async with make_client(transport) as client:
+        found = await counterparties.find_by_name(client, "Логистик Плюс")
+    assert [c.description for c in found] == ["ЛогистикПлюс", "ЛогистикПлюс Восток"]
+
+
 async def test_find_counterparty_requires_query() -> None:
     """Без ИНН и наименования — ValueError."""
     transport = make_transport({})
@@ -370,6 +429,7 @@ async def test_create_contract_requires_kind() -> None:
                 organization_key=ORG_REF,
                 currency_key=RUB_REF,
                 kind="",
+                number="1",
             )
 
 
@@ -383,6 +443,7 @@ async def test_create_contract_requires_counterparty() -> None:
                 counterparty_key="",
                 organization_key=ORG_REF,
                 currency_key=RUB_REF,
+                number="1",
             )
 
 
@@ -452,3 +513,37 @@ async def test_create_nomenclature_duplicate() -> None:
     async with make_client(transport) as client:
         with pytest.raises(LookupError, match="уже"):
             await nomenclature.create_nomenclature(client, name="Консультация", is_service=True)
+
+
+async def test_find_all_contracts_spans_counterparties() -> None:
+    """find_all_contracts читает договоры всей базы (без фильтра по владельцу)."""
+    transport = make_transport(
+        {
+            ("GET", "Catalog_ДоговорыКонтрагентов"): [
+                contract_row(Номер="7", Owner_Key="owner-a"),
+                contract_row(Номер="9", Owner_Key="owner-b", ВидДоговора="СПоставщиком"),
+                contract_row(DeletionMark=True),
+            ]
+        }
+    )
+    async with make_client(transport) as client:
+        found = await contracts.find_all_contracts(client)
+    assert len(found) == 2
+    assert {c.owner_key for c in found} == {"owner-a", "owner-b"}
+    assert contracts.next_contract_number(found) == "10"
+
+
+async def test_create_contract_requires_number() -> None:
+    """Договор без номера («б/н») не создаётся."""
+    transport = make_transport({})
+    async with make_client(transport) as client:
+        with pytest.raises(ValueError, match="без номера"):
+            await contracts.create_contract(
+                client,
+                counterparty_key=CONTRACTOR_REF,
+                organization_key=ORG_REF,
+                currency_key=RUB_REF,
+                number="  ",
+            )
+    posts = [r for r in transport.seen_requests if r.method == "POST"]  # type: ignore[attr-defined]
+    assert not posts

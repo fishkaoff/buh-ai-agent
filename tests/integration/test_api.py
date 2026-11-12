@@ -42,6 +42,7 @@ def test_chat_returns_reply_from_llm() -> None:
             "reply": "Тестовый ответ модели.",
             "operation_id": None,
             "operation_status": None,
+            "files": [],
         }
 
 
@@ -72,11 +73,13 @@ def test_llm_created_once_per_app_start(monkeypatch: pytest.MonkeyPatch) -> None
             "reply": "Ответ 1",
             "operation_id": None,
             "operation_status": None,
+            "files": [],
         }
         assert second.json() == {
             "reply": "Ответ 2",
             "operation_id": None,
             "operation_status": None,
+            "files": [],
         }
 
 

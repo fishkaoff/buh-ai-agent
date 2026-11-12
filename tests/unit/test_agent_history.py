@@ -120,8 +120,8 @@ def test_trim_history_drops_system_head() -> None:
     assert all(not isinstance(m, SystemMessage) for m in trimmed)
 
 
-def make_operation(operation_id: str, status: OperationStatus) -> Operation:
-    """Создаёт тестовую операцию."""
+def make_operation(operation_id: str, status: OperationStatus, database_id: str = "") -> Operation:
+    """Создаёт тестовую операцию (с базой 1С или без)."""
     return Operation(
         id=operation_id,
         chat_id="chat-1",
@@ -129,6 +129,7 @@ def make_operation(operation_id: str, status: OperationStatus) -> Operation:
         status=status,
         request="Создай счёт",
         documents=[],
+        database_id=database_id,
         created_at="2026-01-01T00:00:00+00:00",
         updated_at="2026-01-01T00:00:00+00:00",
     )
@@ -147,3 +148,17 @@ def test_build_operation_context_contains_operation() -> None:
     assert OperationStatus.AWAITING_CONFIRMATION.value in context
     assert "Создай счёт" in context
     assert "уточняющий вопрос" in context
+
+
+def test_build_operation_context_includes_database() -> None:
+    """Контекст операции показывает базу 1С, в которой создаются документы."""
+    operation = make_operation("op-1", OperationStatus.PROCESSING, database_id="filial")
+    context = build_operation_context([operation])
+    assert "база 1С: filial" in context
+
+
+def test_build_operation_context_without_database_omits_field() -> None:
+    """Операция без базы — строка «база 1С» не добавляется."""
+    operation = make_operation("op-1", OperationStatus.PROCESSING)
+    context = build_operation_context([operation])
+    assert "база 1С" not in context

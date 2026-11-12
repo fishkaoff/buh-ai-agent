@@ -150,3 +150,52 @@ async def test_operation_context_built_for_active_operations() -> None:
     service._operation_service.confirm(other.id, chat_id="chat-2")
     assert len(service._operation_service.list_active_by_chat("chat-1")) == 1
     assert service._operation_service.list_active_by_chat("chat-2") == []
+
+
+# ------------------------------------------------------------------
+# Side-channel файлов (PDF печатных форм) в ответе
+# ------------------------------------------------------------------
+
+
+@tool
+async def file_tool() -> str:
+    """Прикладывает тестовый PDF к ответу текущего хода."""
+    from buh_ai_agent.agent.context import AgentFile, get_dialog_context
+
+    get_dialog_context().attach_file(
+        AgentFile(
+            name="schet_test.pdf", content_type="application/pdf", data=b"%PDF-1.4", kind="invoice"
+        )
+    )
+    return '{"ok": true}'
+
+
+async def test_reply_carries_attached_files() -> None:
+    """Файлы, приложенные Tools к ответу, возвращаются в AgentReply и не хранятся."""
+    graph = build_chat_graph(
+        fake_tool_llm(
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "file_tool", "args": {}, "id": "call-1"}],
+            ),
+            AIMessage(content="Счёт создан, PDF приложен"),
+        ),
+        tools=[file_tool],
+    )
+    service = AgentService(
+        graph,
+        SQLiteStore(":memory:"),
+        OperationService(SQLiteStore(":memory:")),
+    )
+    result = await service.run("chat-1", "user-1", "Создай счёт с PDF")
+    assert result.reply == "Счёт создан, PDF приложен"
+    assert len(result.files) == 1
+    assert result.files[0].name == "schet_test.pdf"
+    assert result.files[0].data == b"%PDF-1.4"
+
+
+async def test_reply_without_files() -> None:
+    """Без приложенных файлов поле files пустое."""
+    service = make_simple_service(["Ответ"])
+    result = await service.run("chat-1", "user-1", "Привет")
+    assert result.files == ()
