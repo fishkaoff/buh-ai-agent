@@ -14,7 +14,7 @@ def test_settings_defaults() -> None:
     assert settings.app_env == "local"
     assert settings.debug is False
 
-    assert settings.skills_dir == Path(".opencode/skills")
+    assert settings.skills_dir == Path("skills")
 
     assert settings.llm_temperature == 0.2
     assert settings.llm_timeout == 60.0

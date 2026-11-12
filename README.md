@@ -36,7 +36,7 @@ src/buh_ai_agent/
 │   ├── prompt.py        # системный промпт
 │   └── nodes/chat.py    # узел чата: LLM + tool-calling
 ├── llm/factory.py       # фабрика LLM (ChatOpenAI)
-├── skills/              # загрузка и реестр Skills (.opencode/skills/)
+├── skills/              # загрузка и реестр Skills (skills/ в корне репозитория)
 ├── tools/               # типизированные Tools (обёртки над сервисами)
 │   ├── base.py          # ToolResult: единый формат ответа для агента
 │   ├── onec.py          # инструменты 1С (контрагенты, договоры, счета, УПД)
@@ -60,9 +60,9 @@ tests/
 
 Репозиторий также содержит:
 
-- `.opencode/skills/` — Skills для работы с 1С (инструкции для агента, загружаются лениво)
-- `config/onec/` — клиент OData и конфигурация 1С
-- `docs/` — документация по возможностям 1С и Skills
+- `skills/` — Skills **приложения**: плейбуки для агента (инструкции под Tools приложения, без скриптов)
+- `.opencode/skills/` и `config/` — стек **внешних агентов** (OpenCode и т.п.): скиллы с прямым доступом к 1С через `config/onec/odata-client.js` и `config/onec-config.json`; приложением не используются
+- `docs/` — документация по возможностям 1С и агентским Skills
 
 ## Установка
 
@@ -102,7 +102,11 @@ uv run ruff format .
 - `.env` — параметры LLM (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`) и общие настройки.
 - `STORAGE_SQLITE_PATH` — путь к SQLite-базе (по умолчанию `data/agent.db`).
 - `AGENT_HISTORY_MESSAGES` — сколько последних сообщений диалога (включая результаты Tools) передаётся LLM.
-- `config/onec-config.json` — параметры подключения к 1С (OData URL, учётные данные, дефолты: организация, валюта, ставка НДС). Секреты можно переопределить переменными окружения `ODATA_BASE_URL`, `ODATA_USERNAME`, `ODATA_PASSWORD`, `ONEC_DATABASE`.
+- `SKILLS_DIR` — директория Skills приложения (по умолчанию `skills/`).
+- Подключение к 1С — только переменные окружения (файловые конфиги приложением не читаются):
+  - `ONEC_BASE_URL`, `ONEC_USERNAME`, `ONEC_PASSWORD`, `ONEC_DATABASE` — подключение;
+  - `ONEC_ORGANIZATION_NAME`, `ONEC_ORGANIZATION_INN`, `ONEC_CURRENCY_CODE`, `ONEC_VAT_RATE`, `ONEC_SUM_INCLUDES_VAT`, `ONEC_UNIT_OF_MEASURE` — дефолты документов;
+  - `ONEC_ALLOW_WRITE`, `ONEC_ALLOW_POST`, `ONEC_ALLOW_UNPOST`, `ONEC_ALLOW_MARK_FOR_DELETION` — правила безопасности записи.
 
 ## API
 
@@ -135,5 +139,5 @@ curl -s -X POST http://127.0.0.1:8000/operations/{operation_id}/confirm -H "Cont
 
 - Печатные формы (счёт, УПД) формируются как черновики (Markdown/HTML) — официальная печатная форма доступна только из 1С.
 - Интеграции Telegram и ЭДО вынесены на следующие этапы (интерфейсы будут отдельными компонентами); подтверждение операции не отправляет документы по ЭДО.
-- Реальное подключение к 1С требует доступности OData-сервиса и корректных учётных данных в `config/onec-config.json` или переменных окружения.
+- Реальное подключение к 1С требует доступности OData-сервиса и корректных учётных данных в переменных окружения (`ONEC_BASE_URL`, `ONEC_USERNAME`, `ONEC_PASSWORD`).
 - Изменение уже созданных документов 1С (например, добавление позиции в существующий счёт) выполняется агентом только для неподтверждённых операций и учитывает список созданных документов из операции.

@@ -14,7 +14,7 @@ from buh_ai_agent.agent.service import AgentService
 from buh_ai_agent.api.router import api_router
 from buh_ai_agent.core.settings import get_settings
 from buh_ai_agent.integrations.onec.client import OnecClient
-from buh_ai_agent.integrations.onec.config import load_onec_config
+from buh_ai_agent.integrations.onec.config import onec_config_from_settings
 from buh_ai_agent.llm.factory import create_llm
 from buh_ai_agent.operations import OperationService
 from buh_ai_agent.skills.loader import SkillLoader
@@ -70,13 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     onec_client: OnecClient | None = None
     try:
-        onec_config = load_onec_config(
-            settings.onec_config_path,
-            database=settings.onec_database,
-            base_url_override=settings.odata_base_url,
-            username_override=settings.odata_username,
-            password_override=settings.odata_password.get_secret_value(),
-        )
+        onec_config = onec_config_from_settings(settings)
         onec_client = OnecClient.from_config(
             onec_config,
             timeout=settings.onec_timeout,

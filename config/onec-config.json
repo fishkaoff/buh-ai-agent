@@ -1,5 +1,5 @@
 {
-  "_описание": "Универсальная конфигурация подключения к 1С через OData. Используется всеми скриптами Skills (config/onec/odata-client.js). Секреты можно переопределить переменными окружения: ODATA_BASE_URL, ODATA_USERNAME, ODATA_PASSWORD, ONEC_CONFIG (путь к этому файлу), ONEC_DATABASE (имя базы).",
+  "_описание": "Конфигурация агентского стека (скиллы для внешних агентов: OpenCode и т.п.) — используется скриптом config/onec/odata-client.js. Приложение buh-ai-agent этот файл НЕ читает: оно подключается к 1С через переменные окружения ONEC_BASE_URL, ONEC_USERNAME, ONEC_PASSWORD, ONEC_DATABASE (см. .env.example).",
   "defaultDatabase": "ai_agent",
   "databases": {
     "ai_agent": {

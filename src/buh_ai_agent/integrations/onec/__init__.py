@@ -5,7 +5,7 @@ from buh_ai_agent.integrations.onec.config import (
     OnecConnectionConfig,
     OnecDefaults,
     OnecSafety,
-    load_onec_config,
+    onec_config_from_settings,
 )
 from buh_ai_agent.integrations.onec.errors import (
     OnecApiError,
@@ -24,5 +24,5 @@ __all__ = [
     "OnecError",
     "OnecSafety",
     "format_document_date",
-    "load_onec_config",
+    "onec_config_from_settings",
 ]

@@ -21,3 +21,6 @@ data/
 
 # uv
 # uv.lock intentionally NOT ignored (dependency lock must be committed)
+.opencode/*
+config
+data

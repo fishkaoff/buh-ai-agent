@@ -1,85 +1,48 @@
-"""Загрузка конфигурации подключения к 1С.
+"""Конфигурация подключения к 1С.
 
-Использует общий файл `config/onec-config.json` — тот же, что и
-`config/onec/odata-client.js` (Skill onec-odata). Значения из переменных
-окружения (ODATA_BASE_URL, ODATA_USERNAME, ODATA_PASSWORD, ONEC_DATABASE)
-имеют приоритет над значениями из файла.
+Приложение собирает конфигурацию только из переменных окружения
+(pydantic-settings): ONEC_BASE_URL, ONEC_USERNAME, ONEC_PASSWORD, а также
+дефолтов документов и правил безопасности. Файловые конфиги
+(config/onec-config.json) относятся к агентскому стеку (скиллы) и
+приложением не читаются.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+from pydantic import BaseModel, Field, SecretStr
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
-
+from buh_ai_agent.core.settings import Settings
 from buh_ai_agent.integrations.onec.errors import OnecError
 
 
 class OnecOrganizationDefaults(BaseModel):
-    """Организация по умолчанию из конфигурации 1С."""
+    """Организация по умолчанию (настройки ONEC_ORGANIZATION_*)."""
 
     name: str = ""
     inn: str = ""
 
 
 class OnecDefaults(BaseModel):
-    """Значения по умолчанию для документов (файл onec-config.json)."""
+    """Значения по умолчанию для документов (настройки ONEC_*)."""
 
     organization: OnecOrganizationDefaults = Field(default_factory=OnecOrganizationDefaults)
-    currency_code: str = Field(default="643", alias="currencyCode")
-    vat_rate: str = Field(default="НДС20", alias="vatRate")
-    sum_includes_vat: bool = Field(default=True, alias="sumIncludesVat")
-    unit_of_measure: str = Field(default="шт", alias="unitOfMeasure")
-
-    model_config = ConfigDict(populate_by_name=True)
+    currency_code: str = "643"
+    vat_rate: str = "НДС20"
+    sum_includes_vat: bool = True
+    unit_of_measure: str = "шт"
 
 
 class OnecSafety(BaseModel):
-    """Правила безопасности записи из конфигурации 1С."""
+    """Правила безопасности записи (настройки ONEC_ALLOW_*)."""
 
-    allow_write: bool = Field(default=True, alias="allowWrite")
-    allow_post: bool = Field(default=True, alias="allowPost")
-    allow_unpost: bool = Field(default=False, alias="allowUnpost")
-    allow_mark_for_deletion: bool = Field(default=False, alias="allowMarkForDeletion")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class OnecAuth(BaseModel):
-    """Учётные данные базы 1С в файле конфигурации."""
-
-    username: str = ""
-    password: SecretStr = SecretStr("")
-
-
-class OnecDatabase(BaseModel):
-    """Описание одной базы 1С в файле конфигурации."""
-
-    label: str = ""
-    odata_base_url: str = Field(default="", alias="odataBaseUrl")
-    auth: OnecAuth = Field(default_factory=OnecAuth)
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    @property
-    def username(self) -> str:
-        """Логин из вложенного блока auth."""
-        return self.auth.username
-
-    @property
-    def password(self) -> SecretStr:
-        """Пароль из вложенного блока auth."""
-        return self.auth.password
+    allow_write: bool = True
+    allow_post: bool = False
+    allow_unpost: bool = False
+    allow_mark_for_deletion: bool = False
 
 
 class OnecConnectionConfig(BaseModel):
-    """Итоговая конфигурация подключения к одной базе 1С.
-
-    Собирается из файла onec-config.json с наложением переопределений
-    из переменных окружения.
-    """
+    """Итоговая конфигурация подключения к базе 1С и её доменные настройки."""
 
     database: str
     base_url: str
@@ -89,65 +52,47 @@ class OnecConnectionConfig(BaseModel):
     safety: OnecSafety
 
 
-def load_onec_config(
-    config_path: Path | str,
-    *,
-    database: str = "",
-    base_url_override: str = "",
-    username_override: str = "",
-    password_override: str = "",
-) -> OnecConnectionConfig:
-    """Загружает и собирает конфигурацию подключения к 1С.
+def onec_config_from_settings(settings: Settings) -> OnecConnectionConfig:
+    """Собирает конфигурацию подключения к 1С из настроек приложения.
 
     Args:
-        config_path: Путь к файлу onec-config.json.
-        database: Имя базы; пусто — defaultDatabase из файла.
-        base_url_override: Переопределение URL из переменной ODATA_BASE_URL.
-        username_override: Переопределение логина из ODATA_USERNAME.
-        password_override: Переопределение пароля из ODATA_PASSWORD.
+        settings: Настройки приложения (переменные окружения ONEC_*).
 
     Returns:
         Конфигурация подключения к выбранной базе.
 
     Raises:
-        OnecError: Файл не найден, JSON не разбирается или база не описана.
+        OnecError: Не заданы обязательные переменные подключения.
     """
-    path = Path(config_path)
-    try:
-        raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise OnecError(f"Файл конфигурации 1С не найден: {path}") from error
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise OnecError(f"Файл конфигурации 1С не разбирается: {path}: {error}") from error
-
-    database_name = database or raw.get("defaultDatabase", "")
-    databases: dict[str, Any] = raw.get("databases") or {}
-    if database_name not in databases:
-        available = ", ".join(databases) or "нет"
-        raise OnecError(f"База «{database_name}» не описана в {path} (доступны: {available})")
-
-    try:
-        db = OnecDatabase.model_validate(databases[database_name])
-        defaults = OnecDefaults.model_validate(raw.get("defaults") or {})
-        safety = OnecSafety.model_validate(raw.get("safety") or {})
-    except ValidationError as error:
-        raise OnecError(f"Некорректная конфигурация 1С {path}: {error}") from error
-
-    base_url = (base_url_override or db.odata_base_url).rstrip("/") + "/"
-    username = username_override or db.username
-    password = password_override or db.password.get_secret_value()
-    if not base_url or base_url == "/":
-        raise OnecError(f"Не задан odataBaseUrl для базы «{database_name}»")
+    base_url = settings.onec_base_url.strip()
+    username = settings.onec_username.strip()
+    password = settings.onec_password.get_secret_value()
+    if not base_url:
+        raise OnecError("Не задан ONEC_BASE_URL — URL OData-интерфейса 1С.")
     if not username:
-        raise OnecError(f"Не задан username для базы «{database_name}»")
+        raise OnecError("Не задан ONEC_USERNAME — логин пользователя 1С.")
     if not password:
-        raise OnecError(f"Не задан пароль для базы «{database_name}»")
+        raise OnecError("Не задан ONEC_PASSWORD — пароль пользователя 1С.")
 
     return OnecConnectionConfig(
-        database=database_name,
-        base_url=base_url,
+        database=settings.onec_database,
+        base_url=base_url.rstrip("/") + "/",
         username=username,
         password=SecretStr(password),
-        defaults=defaults,
-        safety=safety,
+        defaults=OnecDefaults(
+            organization=OnecOrganizationDefaults(
+                name=settings.onec_organization_name,
+                inn=settings.onec_organization_inn,
+            ),
+            currency_code=settings.onec_currency_code,
+            vat_rate=settings.onec_vat_rate,
+            sum_includes_vat=settings.onec_sum_includes_vat,
+            unit_of_measure=settings.onec_unit_of_measure,
+        ),
+        safety=OnecSafety(
+            allow_write=settings.onec_allow_write,
+            allow_post=settings.onec_allow_post,
+            allow_unpost=settings.onec_allow_unpost,
+            allow_mark_for_deletion=settings.onec_allow_mark_for_deletion,
+        ),
     )

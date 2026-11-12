@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     app_name: str = "buh-ai-agent"
     app_env: str = "local"
     debug: bool = False
-    skills_dir: Path = Path(".opencode/skills")
+    # Skills приложения: плейбуки для агента (инструкции под Tools приложения).
+    # Скиллы для внешних агентов (OpenCode и т.п.) живут отдельно в .opencode/skills/.
+    skills_dir: Path = Path("skills")
 
     # LLM
     llm_base_url: str = ""
@@ -32,18 +34,30 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout: float = 60.0
 
-    # 1С OData: путь к общему файлу конфигурации и переменные-переопределения
-    # (те же имена env, что использует config/onec/odata-client.js).
-    onec_config_path: Path = Field(
-        default=Path("config/onec-config.json"),
-        validation_alias=AliasChoices("ONEC_CONFIG", "ONEC_CONFIG_PATH"),
-    )
+    # 1С OData: подключение приложения к базе 1С (только env, без файлов).
+    # Секреты хранятся в .env (gitignored). Конфиг агентского стека
+    # (скиллы, config/onec-config.json) приложением не используется.
+    onec_base_url: str = ""
+    onec_username: str = ""
+    onec_password: SecretStr = SecretStr("")
     onec_database: str = ""
-    odata_base_url: str = ""
-    odata_username: str = ""
-    odata_password: SecretStr = SecretStr("")
     onec_timeout: float = 30.0
     onec_max_retries: int = 1
+
+    # 1С: дефолты документов (когда пользователь не указал свои значения).
+    onec_organization_name: str = ""
+    onec_organization_inn: str = ""
+    onec_currency_code: str = "643"
+    onec_vat_rate: str = "НДС20"
+    onec_sum_includes_vat: bool = True
+    onec_unit_of_measure: str = "шт"
+
+    # 1С: правила безопасности записи (настройки-напоминания для агента;
+    # финальное решение о проведении всегда за человеком).
+    onec_allow_write: bool = True
+    onec_allow_post: bool = False
+    onec_allow_unpost: bool = False
+    onec_allow_mark_for_deletion: bool = False
 
     # Агент
     agent_max_iterations: int = 24
