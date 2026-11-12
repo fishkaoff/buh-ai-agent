@@ -19,8 +19,10 @@ htmlcov/
 # SQLite-хранилище приложения
 data/
 
+# Агентский стек: скиллы и конфиги внешних агентов (OpenCode и т.п.)
+# не публикуются — там же креды config/onec-config.json
+.opencode/
+config/
+
 # uv
 # uv.lock intentionally NOT ignored (dependency lock must be committed)
-.opencode/*
-config
-data
